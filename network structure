@@ -1,0 +1,109 @@
+import tensorflow as tf
+import os
+import time
+from mypannet import canshu
+import numpy as np
+from tensorflow.contrib import slim
+from mypannet import pre
+import random
+
+
+class CNN(object):
+    def __init__(self, sess):
+        self.sess = sess
+        self.is_grayscale = (canshu.c_dim == 1)
+        self.label_size = canshu.image_size
+        self.batch_size = canshu.batch_size
+        self.c_dim = canshu.c_dim
+        self.res_dim = canshu.res_dim
+        self.checkpoint_dir = canshu.checkpoint_dir
+        self.build_model()
+
+    def train(self):
+        # pre.input_setup()
+        data_dir = canshu.savepath
+        train_data, train_res, train_label = pre.read_data(data_dir)
+        res_res = np.delete(train_data, canshu.c_dim-1, axis=2)       #
+        glob_step = tf.Variable(0)
+        learning_rate_exp = tf.train.exponential_decay(canshu.learning_rate, glob_step, 1000, canshu.decay,
+                                                       staircase=True)  # 每n个Epoch 学习率*decay
+        self.train_op = tf.train.GradientDescentOptimizer(learning_rate_exp).minimize(self.loss, global_step=glob_step)
+        tf.global_variables_initializer().run()
+        counter = 0
+        start_time = time.time()
+        if self.load(self.checkpoint_dir):
+            print(" [*] Load SUCCESS")
+        else:
+            print(" [!] Load failed and start a new training loop")
+        print("Training...")
+        for ep in range(canshu.epoch):
+            batch_indx = len(train_data)//canshu.batch_size
+            a = []
+            b = []
+            for idx in range(0, batch_indx):
+                batch_images = train_data[idx * canshu.batch_size: (idx + 1) * canshu.batch_size]
+                batch_res = train_res[idx * canshu.batch_size: (idx + 1) * canshu.batch_size]
+                batch_labels = train_label[idx * canshu.batch_size: (idx + 1) * canshu.batch_size]
+                counter += 1
+                _, err = self.sess.run([self.train_op, self.loss], feed_dict={
+                    self.images: batch_images, self.res: batch_res, self.labels: batch_labels},)
+                a.append(err)
+                # print("step: [%2d], loss: [%.5f]" % (counter, err))   # err,PNSR
+                # if counter % 10 == 0:  # 10的倍数step显示
+                #     ave_err = float(np.mean(a))
+                #     print(" step: [%2d], loss: [%.5f]"
+                #           % (counter, ave_err))   # err,PNSR
+                if counter % 10 == 0:  # 10的倍数step显示
+                    ave_err = float(np.mean(a))
+                    print("Epoch: [%2d], step: [%2d], time: [%4.2f], loss: [%.5f]"
+                           % ((ep + 1), counter, time.time() - start_time, ave_err))   # err,PNSR
+                if counter % 500 == 0:
+                    self.save(canshu.checkpoint_dir, counter)
+
+    def build_model(self):
+        images = self.images = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.c_dim], name="image")
+        upsample = self.res = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.res_dim], name="res")
+        labels = self.labels = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.res_dim], name="label")
+        branch_1 = slim.conv2d(upsample, 6, [1, 1])
+        branch_2 = slim.conv2d(upsample, 6, [3, 3])
+        branch_3 = slim.conv2d(upsample, 6, [5, 5])
+        branch = tf.concat([branch_1, branch_2, branch_3], 3)
+        x = slim.conv2d(branch, 6, [3, 3], padding='SAME')
+        for i in range(7):
+            x = pre.resBlock(x, canshu.feature_size, scale=1)
+        x = slim.conv2d(x, 6, [3, 3], padding='SAME')
+        x = slim.conv2d(x, canshu.res_dim, [3, 3], padding='SAME')
+        out = x + upsample
+        tf.add_to_collection('network-output', out)
+        self.loss = tf.reduce_mean(tf.losses.absolute_difference(labels, out))
+        self.saver = tf.train.Saver()
+
+    def load(self, checkpoint_dir):
+        print(" [*] Reading checkpoints...")
+        model_dir = "%s_%s" % ("srcnn", self.label_size)
+        checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
+        # 加载路径下的模型(.meta文件保存当前图的结构; .index文件保存当前参数名; .data文件保存当前参数值)
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
+            # saver.restore()函数给出model.-n路径后会自动寻找参数名-值文件进行加载
+            return True
+        else:
+            return False
+
+    def save(self, checkpoint_dir, step):
+        model_name = 'model.ckpt'
+        model_dir = "%s_%s" % ("srcnn", self.label_size)
+        checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+        self.saver.save(self.sess,
+                        os.path.join(checkpoint_dir, model_name),  # 文件名为SRCNN.model-迭代次数
+                        )
+
+
+if __name__ == '__main__':
+    with tf.Session() as sess:
+        srcnn = SRCNN(sess)
+        srcnn.train()
