@@ -17,7 +17,8 @@ from mypannet import processing
 #     lis = os.listdir(config1.pan_dir)
 #     for file1 in lis:
 #         print('dealing:', file1)
-#         input_data, res_data, label_data = processing.prepare_input(config1.pan_dir + '/' + file1, config1.ms_dir + '/' + file1)
+#         input_data, res_data, label_data = processing.
+#         prepare_input(config1.pan_dir + '/' + file1, config1.ms_dir + '/' + file1)
 #         print('input_data', input_data.shape)
 #         print('label_data', label_data.shape)
 #         print('res_data', res_data.shape)
@@ -38,7 +39,7 @@ def input_setup():
     lis = os.listdir(config1.ms_dir)
     for file1 in lis:
         print('dealing:', file1)
-        input_data, res_data, label_data = processing.prepare_ms_pan_1(config1.pan_dir + '/' + file1, config1.ms_dir + '/' + file1, config1.scale)
+        input_data, res_data, label_data = processing.prepare_ms_pan(config1.pan_dir + '/' + file1, config1.ms_dir + '/' + file1, config1.scale)
         # input_data, res_data, label_data = processing.prepare_ms(config1.ms_dir + '/' + file1, config1.scale)
         print('input_data', input_data.shape)
         print('label_data', label_data.shape)
@@ -75,7 +76,7 @@ def read_data(path):
 
 def resBlock(x, channels=6, kernel_size=[3, 3], scale=1):
     tmp = slim.conv2d(x, channels,kernel_size,activation_fn=None)
-    tmp = tf.nn.leaky_relu(tmp)
+    tmp = tf.nn.relu(tmp)
     tmp = slim.conv2d(tmp, channels,kernel_size,activation_fn=None)
     tmp *= scale
     return x + tmp
