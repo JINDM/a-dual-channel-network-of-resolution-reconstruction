@@ -5,10 +5,11 @@ from mypannet import canshu
 import numpy as np
 from tensorflow.contrib import slim
 from mypannet import pre
+from math import e
 import random
 
 
-class CNN(object):
+class SRCNN(object):
     def __init__(self, sess):
         self.sess = sess
         self.is_grayscale = (canshu.c_dim == 1)
@@ -45,7 +46,7 @@ class CNN(object):
                 batch_res = train_res[idx * canshu.batch_size: (idx + 1) * canshu.batch_size]
                 batch_labels = train_label[idx * canshu.batch_size: (idx + 1) * canshu.batch_size]
                 counter += 1
-                _, err = self.sess.run([self.train_op, self.loss], feed_dict={
+                _, err = self.sess.run([self.train_op, self.loss, ], feed_dict={
                     self.images: batch_images, self.res: batch_res, self.labels: batch_labels},)
                 a.append(err)
                 # print("step: [%2d], loss: [%.5f]" % (counter, err))   # err,PNSR
@@ -64,18 +65,25 @@ class CNN(object):
         images = self.images = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.c_dim], name="image")
         upsample = self.res = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.res_dim], name="res")
         labels = self.labels = tf.placeholder(tf.float32, [None, self.label_size, self.label_size, self.res_dim], name="label")
-        branch_1 = slim.conv2d(upsample, 6, [1, 1])
-        branch_2 = slim.conv2d(upsample, 6, [3, 3])
-        branch_3 = slim.conv2d(upsample, 6, [5, 5])
+        branch_1 = slim.conv2d(images, 6, [1, 1])
+        branch_2 = slim.conv2d(images, 6, [3, 3])
+        branch_3 = slim.conv2d(images, 6, [5, 5])
         branch = tf.concat([branch_1, branch_2, branch_3], 3)
         x = slim.conv2d(branch, 6, [3, 3], padding='SAME')
-        for i in range(7):
-            x = pre.resBlock(x, canshu.feature_size, scale=1)
         x = slim.conv2d(x, 6, [3, 3], padding='SAME')
-        x = slim.conv2d(x, canshu.res_dim, [3, 3], padding='SAME')
-        out = x + upsample
+        x = slim.conv2d(x, 6, [3, 3], padding='SAME')
+        y = slim.conv2d(upsample, 6, [3, 3], padding='SAME')
+        for i in range(7):
+            y = pre.resBlock(y, canshu.feature_size, scale=0.2)
+        y = slim.conv2d(y, 6, [3, 3], padding='SAME')
+        y = slim.conv2d(y, 6, [3, 3], padding='SAME')
+        out = x + y
         tf.add_to_collection('network-output', out)
-        self.loss = tf.reduce_mean(tf.losses.absolute_difference(labels, out))
+        c = tf.square(labels - out)
+        rmse = tf.sqrt(tf.reduce_mean(c))
+        L1 = tf.reduce_mean(tf.losses.absolute_difference(labels, out))
+        self.loss = tf.sqrt(tf.square(rmse * e ** L1))
+        # self.loss = tf.reduce_mean(tf.losses.absolute_difference(labels, out))
         self.saver = tf.train.Saver()
 
     def load(self, checkpoint_dir):
